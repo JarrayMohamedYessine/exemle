@@ -1,3 +1,2 @@
-# exemle
-
-Initial repository setup for Zip2Git.
+# superstudent
+موققع مسلعد للباكالوريا

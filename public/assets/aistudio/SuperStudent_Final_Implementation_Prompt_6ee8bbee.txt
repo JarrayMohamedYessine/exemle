@@ -1,0 +1,526 @@
+SUPERSTUDENT.TN — FINAL COMBINED IMPLEMENTATION PROMPT
+Version prepared: 2026-10-27
+Project inputs required: `superstudent0-clean.zip` and `SuperStudent_Engineering_Audit_Report.md`
+
+EXECUTION CONTRACT
+You must read the complete project archive and audit report before changing code. This is a unified prompt: follow all sections in order and resolve cross-section conflicts using the explicit decisions stated here. Use current vendor documentation as of 2026-10-27, and search again at implementation time because packages, provider terms, API endpoints, and product limits may change. Prefer official documentation and changelogs. Cite/source-link the facts that determine implementation decisions in the final report.
+
+APPROVED DECISIONS THAT MUST NOT BE CHANGED SILENTLY
+- Reuse the already-created Turso database named `superstudent`; do not create another database or reset the existing database.
+- The signup ceiling of 15,000 applies to successful new registrations per day, not to logins. Existing users must still be able to log in when the registration ceiling is reached. Login has its own abuse/rate limits.
+- Registration is invitation-only for the first week of the controlled rollout, according to the server-side configuration defined below.
+- The owner requested Google's existing PDF viewer directly, not a custom PDF rendering library. Verify the currently working Google-hosted viewer route and include an “Open original PDF” fallback. Do not silently substitute PDF.js or another viewer.
+- Create an in-site image reader with zoom and robust failure states because external image providers can be throttled, hit limits, expire, or fail.
+- Use ordinary Cloudflare CDN/static delivery wherever eligible so a cache HIT can be served before Worker execution. Do not route all public static files through a Worker merely to cache them.
+- Never cache passwords or use cached email/username/profile data as authentication proof.
+- For database cost/efficiency, use indexed, selective SQL queries and inspect query plans rather than scanning whole tables; measure actual row-read cost and never promise every query is exactly one read.
+- Preserve existing UI, flows, translations, and intended features. Implement small safe changes rather than a wholesale rewrite.
+
+REPOSITORY INSPECTION RULE — TARGETED, NOT BLIND FULL-DUMPING
+Inspect the repository with file inventory, symbol search, imports/call sites, targeted file ranges, and focused tests. Do not repeatedly print or reread every line of every large source file when a targeted search can identify the relevant symbol and surrounding implementation. For database operations, use indexes and query plans as described below. These are separate optimizations: source-code search helps inspect the repository; database indexes reduce database scan/read work. Do not confuse them.
+
+SUPERSTUDENT.TN — ENGINEERING FOUNDATION AND IMPLEMENTATION WORKFLOW
+Foundation, repository preservation, backend, database, authentication, authorization, security, and engineering workflow
+
+READ THIS ENTIRE SPECIFICATION BEFORE MAKING ANY CHANGE. The project ZIP and the audit report are the source material. You are being asked to implement changes in the actual project, not to return a generic tutorial or merely describe a plan.
+
+CURRENT-DOCUMENTATION REQUIREMENT (as of 2026-10-27): Before selecting or implementing a provider, API, viewer URL, package version, Cloudflare routing/cache feature, Turso capability, or billing assumption, search current official documentation and release notes. Prefer official vendor docs and changelogs over blog posts and forum guesses. Record the access/update date and source URLs in the final report. Do not assume that a viewer URL is a formally supported API just because it currently loads. Verify actual behavior with representative real requests and clearly mark anything you cannot verify. Never fabricate a package version, endpoint, quota, or feature.
+
+============================================================
+0. YOUR ROLE AND DELIVERY CONTRACT
+============================================================
+Act as a coordinated senior engineering team consisting of:
+1. Cloud/Platform Engineer — deployment, edge routing, reliability, quotas, cache architecture, and cost.
+2. Debugging Engineer — trace defects to their causes and fix them with minimal safe changes.
+3. Application Security Engineer — authentication, authorization, data protection, abuse prevention, and OWASP-oriented review.
+4. Code Reviewer/QA Engineer — TypeScript correctness, migrations, tests, edge cases, regressions, accessibility, and maintainability.
+
+Work on the supplied SuperStudent project archive and the supplied `SuperStudent_Engineering_Audit_Report.md`. Inspect the complete archive before editing. Treat the report as a valuable static audit, not as proof of runtime behaviour: the report says the code was not installed, built, or executed in that audit environment. Verify claims against the actual current files and report any difference.
+
+Required approach:
+- First inventory the repository, identify the real product root, inspect all reachable application code, package/workspace configuration, existing services, and all files related to accounts, roles, documents, announcements, uploads, caching, and deployment.
+- Then implement the requested system in small, coherent changes. Do not stop after proposing architecture.
+- Preserve existing visual identity, navigation, user-facing features, text, and workflows unless a change is required to fix a defect or connect a currently nonfunctional feature to real persistence.
+- Do not perform a wholesale rewrite, replace the design, delete features because they are currently unreachable, or silently remove existing code/content. Before changing a component, understand its callers and dependencies.
+- Do not fabricate sample users, metrics, testimonials, official documents, successful uploads, or success notifications. A UI must reflect the real result returned by the server.
+- Do not claim a command, test, migration, or deployment succeeded unless you actually ran it and observed success.
+- Do not leave TODOs, pseudo-code, ellipses, fake API success stubs, or “implement later” sections in required production paths.
+- If a requirement cannot be implemented safely in the available environment, implement the safest complete portion and clearly report the blocker, exact file, and next action. Never silently invent credentials, account IDs, hostnames, or deployment secrets.
+
+Deliver complete edited files and configuration changes. Keep changes focused and explain them in a final implementation report. Never print any secret value to logs, chat, source files, screenshots, or the final report.
+
+============================================================
+1. PROJECT FACTS TO VERIFY BEFORE YOU CHANGE ANYTHING
+============================================================
+The supplied audit reports the following initial state; verify each item in the archive:
+- The project is a pnpm workspace containing `artifacts/superstudent` and `artifacts/mockup-sandbox`.
+- The main product is a React 19 + Vite 8 + TypeScript + Tailwind CSS 4 single-page application. Arabic is the default language and the UI supports Arabic RTL, French, and English.
+- The product has no functioning backend, network requests, or durable persistence in its current state. The current service modules include stubs. `localStorage`, `sessionStorage`, and IndexedDB were reported as unused in the audited source.
+- The app's current source includes large existing components such as `App.tsx`, `AdminScreen.tsx`, `DocumentsScreen.tsx`, `AnnouncementsScreen.tsx`, `AuthScreen.tsx`, `SettingsScreen.tsx`, and service modules under `src/services/`.
+- The report identified serious latent defects that must not be carried into a real backend: account lookup/login stubs, passwords not securely persisted or verified, possible client-side self-promotion to superadmin using the owner's email, client-side-only authorization, fake admin RPC successes, overly broad document deletion UI, simulated upload progress, unsafe PDF URL rendering, and no working ErrorBoundary.
+- Some components exist in source but are not reachable from the app entry point. Do not assume they are shipped features; examine them and preserve them unless a deliberate, documented decision is necessary.
+- There is already a Turso database named `superstudent`. It is intended to be reused. Do not create a second production database, rename this database, or drop its data. The database may currently be empty and may not yet be connected to the app.
+
+If the attached ZIP has changed since the audit, use the actual archive as the source of truth and record the differences. Do not make up file counts or dependency versions; read the real package manifests.
+
+============================================================
+2. PRODUCT GOAL AND NON-NEGOTIABLE PRESERVATION RULES
+============================================================
+Turn the existing SuperStudent.TN frontend into a genuinely functioning, persistent, secure application while preserving the existing design and current intended product scope. Connect accounts, sessions, roles, documents, document metadata, announcements, notifications, settings, and relevant moderation/admin operations to real server-side data and APIs. First understand each existing feature and its intended role before wiring it up.
+
+Do not:
+- replace the current interface with a generic dashboard/template;
+- remove Arabic/French/English or break RTL layout;
+- move business logic or secrets into browser-only code and treat that as security;
+- use browser state as the authoritative source for permissions, account roles, or admin actions;
+- keep returning `{ success: true }` when the action was not actually performed;
+- keep passwords in plaintext, in IndexedDB/localStorage, in client account objects, or in logs;
+- trust a client-submitted role, owner email, file URL, author ID, or permission flag;
+- store PDFs, full image files, or base64 file payloads inside Turso rows when the agreed design is to store the binary files in file providers and only store validated metadata/URLs in the database;
+- put credentials, private API tokens, database auth tokens, signing secrets, or provider secrets in source code or any `VITE_*` variable. Any Vite-exposed variable is public to the browser.
+
+Use the smallest number of new dependencies necessary. Reuse installed packages when appropriate, but verify that the chosen package is really present and compatible with the actual runtime before importing it. Do not trust a package merely because it appears in an unused dependency list.
+
+============================================================
+3. TARGET ARCHITECTURE
+============================================================
+Use a clean separation of concerns:
+
+A. Frontend
+- Preserve the existing React + Vite + TypeScript interface and its visual system.
+- Add a typed API client/service layer; React components should not contain secrets or direct database operations.
+- Use TanStack Query if the actual installed dependency and version support it; otherwise add it intentionally or use a consistent small data-fetching layer. Do not create competing cache layers accidentally.
+- Add routing/deep-link behaviour only in a way that preserves existing navigation; repair the current PDF/document deep-link behaviour if confirmed broken.
+- Add an ErrorBoundary and accessible loading, empty, retry, and failure states. Never show fake success after a failed request.
+
+B. API/backend
+- Create a real server-side API using Cloudflare Workers for server-side operations that need authentication, validation, authorization, persistence, signed upload workflows, and moderation.
+- Keep public, static, cacheable files/content on a delivery path that can be served by the ordinary Cloudflare CDN without invoking a Worker on every cache hit. This is important: do not route every PDF/image/public-static request through a Worker solely to serve it from Workers Cache.
+- Ensure only API paths that need dynamic logic reach the Worker. Design public cached content separately from private per-user API routes.
+- Implement typed request/response contracts, input validation, consistent error responses, request IDs, timeouts where supported, bounded retries only for idempotent operations, and safe logging.
+- Keep all authorization on the server. Hiding a button is useful UX but is never an authorization control.
+
+C. Database
+- Reuse the existing Turso database `superstudent` via a server-only connection. Use Drizzle ORM with `@libsql/client` and `drizzle-kit` only after verifying compatible versions and setup.
+- Define schema in versioned migration files. Generate, review, and apply migrations deliberately against the existing database; do not assume Turso creates tables automatically on first insert.
+- Never drop, reset, or recreate the existing database as a shortcut. Never run destructive migrations against production without backup, explicit review, and a safe migration path.
+- Add proper indexes for common lookups and pagination, but first verify the currently supported index features of the actual Turso/libSQL database/runtime and migration tooling. Use explicit transactions where supported. Avoid N+1 queries and unbounded table scans.
+- IMPORTANT READ-COST OPTIMIZATION: Do not repeatedly scan whole tables to find a single account or record. Normalize and uniquely index exact lookup keys such as email and username; use parameterized `WHERE indexed_column = ?` lookups, select only the columns the operation actually needs, and use `LIMIT` for single-record reads. For list views, use indexed filters plus cursor pagination and a bounded page size. Inspect actual plans with `EXPLAIN QUERY PLAN` (or the exact supported equivalent) and verify that critical lookups use an index rather than `SCAN table`. Use composite indexes only when justified by actual filter/sort patterns and confirmed supported by the deployed Turso version. Do not promise that every lookup costs exactly one row read: measure the actual plan and provider billing semantics. Avoid `SELECT *`, N+1 queries, unnecessary repeated count queries, and downloading entire tables. Batch related operations when safe.
+- Store canonical records and metadata in Turso: account identity metadata, role/permission assignments, announcement/document metadata, references to stored files, moderation/audit records, and other persistent features actually present in the project.
+- Store large file bytes with the designated file-storage provider(s), not as database base64 blobs. The database stores validated source URLs/identifiers, provider, object/file key if available, size, MIME type, checksum, ownership, visibility, timestamps, and status.
+
+D. Configuration and environments
+- Separate local development, preview/staging, and production settings.
+- Provide a complete `.env.example` containing only variable names and safe example formats, never actual credentials.
+- Use server-side secrets for Turso auth tokens, signing/session secrets, Cloudflare credentials, and file-provider tokens. Validate required settings at startup and fail closed if critical secrets are absent.
+- Add deployment configuration/instructions for the actual chosen platform without inventing a domain, account identifier, zone identifier, or token.
+- Add `.gitignore` rules for secrets, build outputs, generated local databases, logs, and temporary uploads.
+
+============================================================
+4. DATABASE MODEL AND DATA INTEGRITY
+============================================================
+Inspect existing types and features before deciding the final schema. At minimum, model the persistent entities that the existing product genuinely needs, adapting names and columns to the current domain model:
+- users/accounts with a stable internal ID, normalized unique email, normalized unique username, status, created/updated timestamps, and carefully controlled profile fields;
+- sessions or refresh/session records if the selected auth design requires them;
+- role assignments and any necessary scoped permissions, with role names and allowed transitions defined centrally on the server;
+- documents and file attachments, including branch/section, subject, exam year, title, description, author/uploader, file and correction-file references, file metadata, visibility, moderation state, and timestamps;
+- announcements and their attachments, publication state, target audience/roles/branches, start/expiry times if supported by the UI, and creation/update metadata;
+- notifications and moderation/admin actions if these are real product features;
+- migration history and security/audit records for high-impact administrative actions, without storing passwords, tokens, or unnecessary personal data.
+
+Use foreign keys/unique constraints/check constraints where supported and appropriate. Normalize identifiers consistently. Validate ownership and state transitions inside the backend. Use cursor pagination for potentially large document lists and announcements; never download all records by default merely to populate a browser cache. Build indexes based on actual filter/sort paths in the UI.
+
+Keep the database as the canonical source of truth. Cache entries and browser-side data are disposable derived copies, not authoritative records. Do not put frequently changing full-file content into database rows.
+
+============================================================
+4A. REQUIRED LOW-READ DATABASE ACCESS PATTERN
+============================================================
+
+The database is not a text file to search line-by-line. For database records, use relational queries supported by indexes. Verify the actual Turso/libSQL features available in the connected database and deployment tier before relying on a particular index type. For ordinary exact lookups, design and migrate unique indexes such as normalized email and normalized username when those columns are used for sign-in or uniqueness checks.
+
+Illustrative SQL patterns (adapt table/column names to the verified schema and ORM; never copy them blindly if the actual schema differs):
+
+```sql
+CREATE UNIQUE INDEX IF NOT EXISTS users_email_normalized_uq
+  ON users(email_normalized);
+
+CREATE UNIQUE INDEX IF NOT EXISTS users_username_normalized_uq
+  ON users(username_normalized);
+
+SELECT id, password_hash, status, role_version
+FROM users
+WHERE email_normalized = ?
+LIMIT 1;
+
+EXPLAIN QUERY PLAN
+SELECT id, status
+FROM users
+WHERE email_normalized = ?
+LIMIT 1;
+```
+
+Requirements:
+- Use parameterized statements/ORM parameters; never interpolate user input into SQL.
+- A login lookup may retrieve a password hash to verify it on the server, but that hash must never be sent to the browser or cached there.
+- The username/email lookup should use a verified index and return only fields needed for that operation. Do not search all users in application code or run an unbounded query then filter in JavaScript.
+- Use query plans to confirm expected index use. If the plan still scans a table, find the cause and fix the schema/query, then rerun the plan. Do not create many unused indexes because each index adds storage and write cost.
+- For document and announcement lists, match indexes to actual WHERE/ORDER BY patterns, use bounded result sets and stable cursor pagination, and avoid one query per item (N+1). Count queries only when the UI truly needs the count.
+- Query indexes optimize database work; they do not by themselves eliminate an HTTP request or Worker invocation. Caching public data and avoiding unnecessary API requests are separate layers, each requiring its own correctness/security design.
+- Do not promise exactly one database read for every indexed lookup. Record measured query plan and provider billing semantics; explain any unavoidable extra reads.
+
+============================================================
+5. AUTHENTICATION AND AUTHORIZATION — SECURITY BLOCKER
+============================================================
+Build a functioning, self-managed authentication flow unless the actual supplied requirements explicitly specify another provider. Do not add Supabase Auth or another hosted auth vendor without an explicit requirement. Preserve the approved design decision from the preceding requirements discussion: the account system is managed by SuperStudent itself, with an initial registration safety cap of 15,000 new registrations per day and invitation-only registration during the first week as a load-test/controlled rollout. Enforce the cap atomically on the server and fail closed if the usage count cannot be determined; do not rely on a client-side counter. Make these rollout settings configurable server-side and document how the invitation-only period is switched off safely.
+
+If the previously chosen password/key flow uses browser-side key derivation plus a lightweight server-side verification step, implement only a cryptographically defensible, documented protocol. Do not invent a custom cryptographic protocol or use a fast unsalted hash for password storage. Before coding that path, inspect the exact agreed specification in the provided conversation/requirements material; if the exact protocol is unavailable, choose a standard, supported password-authentication design for the Worker runtime and explicitly document the deviation instead of pretending an unspecified design is known. Passwords must never be stored as plaintext or recoverable encrypted text.
+
+Mandatory auth requirements:
+- Normalize and validate email/username on the server. Enforce uniqueness through database constraints, not only a prior SELECT.
+- Use an established secure password-hashing or standards-based authentication mechanism compatible with the actual Cloudflare Worker runtime; use per-password salts and appropriate work factors where applicable. Do not use `Math.random()` for security-sensitive randomness.
+- Use short-lived sessions and secure cookie settings (`HttpOnly`, `Secure` in production, appropriate `SameSite`, narrow path/domain). Protect state-changing requests against CSRF if cookie-based sessions are used. Rotate/revoke sessions on password changes, logout, account suspension, and important privilege changes. Prefer an `HttpOnly` cookie for a session credential; JavaScript must not read it. Decide deliberately whether each API call needs a database lookup, and document the chosen session-revocation/freshness trade-off. Cryptographically validating a signed session can reduce database reads, but it does not prevent a Worker invocation if the request route still enters the Worker, and it must not allow revoked sessions or stale privileged roles to remain usable.
+- Never return password hashes, password material, secret keys, raw session tokens, recovery codes, or unnecessary private fields to the browser. Never save passwords, password hashes, raw session/refresh tokens, recovery codes, or secrets in localStorage, IndexedDB, query-cache persistence, or any application-managed browser cache. Do not cache credentials to avoid Worker calls. The browser's built-in password manager may offer to save credentials under its own controls; the application must not implement its own password storage. Email, username, and display name are identity/profile data, not proof of authentication and must never be used as a substitute for server-side verification.
+- Verify email ownership before granting the verified status or privileged capabilities, if email verification is part of the implemented flow. Do not pretend a verification was sent when no provider is configured.
+- Add server-side rate limits and abuse protections for registration, sign-in, recovery, verification, invitations, and sensitive account changes. Avoid revealing whether an email exists in recovery-related errors.
+- Ensure account lookup, login, logout, session restoration, password change/reset, and account deletion actually work against the backend. Password change must verify the current credential and revoke/rotate sessions appropriately.
+- Never grant `superadmin` merely because someone enters the owner's email during sign-up. Bootstrap the first owner through a safe one-time deployment/admin procedure, verified private setup secret, or controlled migration; do not expose a public endpoint that lets anyone claim ownership.
+- Role and permission checks must be enforced on every protected API operation. A client can spoof any role in DevTools.
+- Students, teachers, moderators, and administrators may do only what the established role/permission matrix allows. Keep least privilege. Do not grant Administrator or broad channel/content powers to a role merely to make a UI function work.
+- Make delete/ban/promote/approve/revoke endpoints verify the actor's permission on the server, validate the target and state transition, use transactions when possible, and produce an audit record. Do not trust the client to identify the actor.
+- Avoid logging IP addresses, email addresses, student proof images, session identifiers, or other personal data unless essential and lawfully justified; redact logs and define retention.
+
+============================================================
+6. INPUT VALIDATION, ERRORS, AND TRUST BOUNDARIES
+============================================================
+- Validate API inputs with an established schema validator compatible with the deployed runtime (Zod is already declared in the reported manifest but verify its real version and compatibility). Validate both shape and semantic constraints: lengths, enums, dates, IDs, URL schemes/hosts, access rights, file size/type, pagination limits, and state transitions.
+- Reject unknown or mass-assignment fields for sensitive records. Never accept `role`, `isAdmin`, `owner`, `canUpload`, or similar privilege fields directly from an ordinary user's payload.
+- Parameterize database queries through the chosen ORM/driver; never interpolate user input into SQL.
+- Return appropriate HTTP status codes and a stable error shape. Do not expose stack traces, SQL, environment values, or internal provider details to the client.
+- Set security headers and restrictive CORS based on the actual production origin(s); never use wildcard credentialed CORS. Treat origin checks as only one layer, not as authentication.
+- Validate external attachment URLs before using them. Prevent `javascript:`, unsafe `data:` usage, private-network SSRF, open redirects, and arbitrary URL fetching. Prefer provider keys or server-generated/signed links over arbitrary user-supplied URLs.
+- Add dependency and build checks; do not disable audit/security checks just to make installation succeed. Explain and resolve peer-dependency conflicts instead of blindly adding `--force` or legacy flags.
+
+============================================================
+7. REQUIRED FOUNDATION DELIVERABLES IN THIS PART
+============================================================
+Implement the secure backend foundation and integrate it into the current app, including:
+1. A verified repository map and a concise list of confirmed differences from the audit report.
+2. Typed server API structure with a small, coherent separation between route handlers, validation, business logic, database/repositories, auth/session management, and file-provider interfaces.
+3. Drizzle schema and reviewed versioned migrations targeting the already existing Turso database `superstudent` without deleting its data.
+4. Real account registration/login/session persistence/logout/password change and server-enforced role/permission rules.
+5. Replacement of the corresponding false-success service stubs with real API calls and truthful UI states.
+6. `.env.example`, server-side secret binding instructions, `.gitignore` protection, and deployment configuration appropriate to the verified project.
+7. Tests for auth, permission boundaries, schema validation, registration cap behaviour, failed database/provider responses, and migration/schema assumptions.
+
+Do not move to production claims until the app builds and tests pass. At the end of implementation, provide: files changed, migrations created/applied (separately state which), commands actually run and results, known limitations, deployment secrets still requiring the owner to configure, and security issues that remain. Do not include secret values.
+
+FOUNDATION SECTIONS COMPLETE. Continue with the implementation, caching, reader, provider, and acceptance requirements below as part of this same specification.
+
+
+SUPERSTUDENT — CACHE, FILE DELIVERY, VIEWER, AND ACCEPTANCE REQUIREMENTS
+CACHE ARCHITECTURE, BROWSER STORAGE, FILE PROVIDERS, IMAGE VIEWER, GOOGLE PDF VIEWER, RESILIENCE, AND ACCEPTANCE TESTS
+
+IMPORTANT CONTEXT
+This section is part of the same complete implementation specification. The repository ZIP and engineering audit report remain the source material. Part 1's authentication/database and preservation requirements apply throughout this section. Implement caching, browser persistence, public file delivery, image viewing, Google PDF viewing, resilience, and verification consistently with the complete specification.
+
+Current confirmed constraints:
+- Preserve the existing SuperStudent website, its current visual identity, navigation, Arabic/French/English support, and existing working features. Do not perform an unrelated redesign.
+- The current repository is a frontend-only prototype; verify the actual files before coding and do not assume a backend already exists.
+- Use the existing Turso database named `superstudent` as the canonical database. Do not create a second database and do not silently switch to Cloudflare D1.
+- Cloudflare is used for delivery/edge CDN where appropriate. Prefer ordinary Cloudflare CDN/cacheable-origin/static delivery when it can serve a cache hit without invoking a Worker. Do not route every image/PDF/static file request through a Worker merely to count or cache it.
+- Do not add a new binary storage service or change the owner-approved storage plan without first verifying the existing requirements and obtaining explicit approval.
+- The owner previously selected img402 as the intended public image host and discussed Catbox as the first PDF host with Buzzheavier as a possible fallback. Before implementing provider integrations, verify current provider terms, API support, upload limits, content restrictions, expiry behavior, and commercial-use permission from official/current documentation. Do not invent endpoints or promise availability. If a provider cannot be used safely or permissibly, make the limitation explicit and do not publish broken URLs. Keep provider logic behind interfaces so providers can be replaced without rewriting the UI.
+- Telegram is, at most, an optional private backup for eligible files. It is not a public CDN. Never expose private-channel links, bot tokens, or private backup references as public file URLs. Do not make an optional Telegram backup a publication prerequisite.
+- New account registrations have a global initial ceiling of 15,000 successful registrations per day, enforced atomically on the server as specified in Part 1. This is NOT a daily cap of 15,000 logins. Login must have its own abuse protections: per-account and per-IP rate limits, progressive cooldowns or equivalent protections, generic authentication errors, and monitoring that does not leak private data. Invitation-only registration applies during the first week as specified in Part 1.
+- Do not claim tests, deployment, provider verification, migrations, or cache bypass behavior were completed unless you actually ran and observed them.
+
+============================================================
+1. CACHE DESIGN — DEFINE A POLICY PER DATA CLASS
+============================================================
+
+Before coding, create a short cache-policy table in the repository documentation. For every cacheable resource specify: canonical source, cache layer, cache key, TTL/freshness, stale behavior, invalidation/versioning, whether a Worker is invoked on a cache hit, and whether the data is public. Do not use one universal TTL for everything.
+
+Use these defaults as a starting policy, then validate them against the actual routes and the currently supported Cloudflare/Turso features. If a different value is necessary, explain the reason and document it. Use seconds in configuration and readable names in code.
+
+A. Public static assets (JS, CSS, fonts, icons, fixed decorative images)
+- Serve through Cloudflare Static Assets/CDN wherever supported, without a Worker route for ordinary static requests.
+- Use content-hashed filenames for build assets and long-lived immutable caching where safe.
+- For stable files without hashed names, use an appropriate shorter TTL or version the URL before applying a long TTL.
+- Never cache deployment-specific HTML indefinitely if it must point to new asset hashes. Confirm the SPA fallback and asset paths work after deployment.
+- Do not add a Worker solely to serve ordinary static files.
+
+B. Public PDFs and public image files
+- If hosted at an eligible origin under the owner’s Cloudflare zone, configure the ordinary CDN/cache rules so that successful public file responses can be served from edge cache without invoking a Worker on a cache hit. Confirm the actual DNS/proxy/origin/route configuration supports this; do not merely assume that adding Cloudflare automatically caches an off-site provider.
+- Use stable, versioned URLs for immutable file contents. When a file is replaced, generate a new versioned URL or purge the exact affected URL. Do not let the browser or CDN keep the previous file indefinitely under the same URL.
+- Start with a long edge/browser TTL for immutable public file URLs (for example, up to one year only when the URL is versioned and the resource truly immutable). Use a shorter policy for non-versioned resources. Respect provider expiry and actual Cache-Control behavior.
+- Never publicly cache private student proof images, private teacher/admin attachments, account documents, unpublished files, or anything whose access varies by user/role.
+- An off-site provider URL is not automatically cached by the owner’s Cloudflare zone. If direct off-site hosting is used, document that Cloudflare cannot guarantee caching it in the owner’s zone. Do not silently proxy every file through a Worker as a workaround.
+- If a file must be private, use an authenticated/signed access design with bounded expiry and no shared public cache; do not expose the storage-provider origin or private token.
+
+C. Public announcements
+- Canonical copy remains in Turso.
+- Use a public, cacheable read representation only for published announcements and only after verifying that no user-specific information is included.
+- Suggested initial edge TTL: 60–180 seconds, with a stale-while-revalidate or equivalent strategy only if supported by the selected delivery path. On publish/edit/unpublish, invalidate the affected cache key or increment a version. If invalidation is not reliably supported, use a documented short TTL and versioned snapshot strategy.
+- For very high read volume, consider generating a public JSON snapshot when an administrator publishes or edits an announcement and serving that snapshot as a static/CDN-cacheable resource. A static snapshot must not contain drafts, private audiences, moderation notes, hidden author details, or role-specific data. Do not generate a separate snapshot per user.
+- Paginate announcement history. A first page of 50 records is acceptable if it matches the UI; use a stable cursor for older pages. Do not download the entire announcement history at every app launch.
+
+D. Public document catalogue / metadata index
+- Turso is the source of truth for metadata, publication state, subject/section, year, file URLs, correction URLs, and visibility.
+- Fetch only the page and filters required by the current view. Use server-side cursor pagination and bounded page sizes (default 50; enforce a safe maximum such as 100 unless a measured requirement justifies another value).
+- Suggested edge TTL: 5–15 minutes for public catalogue queries, adjusted by query volume and the desired freshness. Invalidate or version the affected catalogue representation after document publish/edit/unpublish/delete. If broad invalidation is too expensive or unsupported, use a short TTL and a cache version that changes after writes.
+- Do not preload every document record or all PDF URLs into the browser at startup. Prefetch only the next page or common metadata when measured to improve UX.
+- Cache keys must include normalized public filters, sort order, cursor, page size, and schema/version where relevant. Reject invalid/oversized pagination inputs before querying the database.
+
+E. Account, session, admin, moderation, and personalized responses
+- Never put authentication/session data, password/recovery material, student private profile data, upload authorization, admin actions, moderation queue entries, private announcements, or role-dependent responses into a shared public CDN cache.
+- Use `Cache-Control: private, no-store` (or the strongest appropriate no-store policy) for session and sensitive account endpoints.
+- A browser-side cache may hold only explicitly approved, non-secret display data. It must not be treated as proof of identity or permission. Re-check all permissions on the server for every protected operation.
+- Never store session identifiers, raw refresh tokens, passwords, password hashes, recovery codes, or secret keys in localStorage or IndexedDB.
+
+F. Cache failures and stale data
+- Cache is an optimization, not the source of truth. Turso remains canonical for durable metadata and account state.
+- For a public read, if the origin/database is temporarily unavailable, serve stale data only if it was previously verified as public, has a documented maximum stale period, and can be served without leaking unpublished/private changes. Label stale data only where useful.
+- Do not serve stale authorization decisions, stale roles, account status, or private content after a permission change.
+- On a cache miss, database/provider failure, malformed cached JSON, or failed invalidation, fail safely, log a redacted diagnostic, and provide a retry path. Do not silently claim success.
+- Add schema/version identifiers to cached JSON payloads. Validate cached data at the consumer boundary and discard incompatible/invalid entries.
+- Prevent cache stampedes where the platform permits it. Avoid uncontrolled retries and retry storms.
+
+============================================================
+2. CLOUDFLARE ORDINARY CDN — AVOID WORKER REQUESTS FOR CACHE HITS
+============================================================
+
+The owner specifically means ordinary Cloudflare CDN/edge caching, not a Worker Cache API cache that is accessed only after a Worker has already executed.
+
+- Design file/static delivery so a cache HIT can be answered by Cloudflare’s ordinary CDN/static delivery path before Worker execution, wherever the real route/origin setup supports that behavior.
+- Do not count a Worker Cache API hit as equivalent to a CDN hit that bypasses Worker execution. These are different paths.
+- Do not attach a Worker route to all static file paths by default. Keep API routes separate from static asset/file delivery when feasible.
+- Do not promise that every CDN request is free, unlimited, or automatically bypasses Workers. Verify current plan limits, cache eligibility, provider headers, route precedence, and the actual deployed setup.
+- For dynamic JSON, CDN caching requires a cacheable origin/response and appropriate configuration. If a request must execute Worker logic to read Turso, a Worker is still invoked unless a separate static snapshot or cacheable non-Worker route can serve it first.
+- If public snapshots are used, update them only after a successful database transaction and a validated publication change. Ensure the site can recover if database commit succeeds but snapshot publication/invalidation fails. Provide an idempotent retry/reconciliation mechanism.
+- Document an observable verification procedure using response headers and Cloudflare analytics/logs that distinguishes: browser cache HIT, edge CDN HIT, edge MISS, origin request, and Worker invocation. Do not expose private headers or secrets.
+- Never create a public snapshot of personalized or protected API output to avoid Worker requests.
+
+============================================================
+3. BROWSER-SIDE CACHE AND OFFLINE-FRIENDLY STORAGE
+============================================================
+
+Use the existing project’s dependencies and structure where appropriate. Inspect `package.json` and the actual frontend before adding a new library. The audit notes that TanStack Query is present in the project; verify the exact installed/declared version and use it if compatible rather than adding a competing query/cache library.
+
+AUTHENTICATION VS. CACHE — NON-NEGOTIABLE
+- Login and registration must be verified on the server. Never place passwords in browser storage, query persistence, source code, logs, or caches. Do not store passwords, hashes, raw session tokens, refresh tokens, or recovery secrets client-side. The browser's own password manager is separate; do not build a credential vault.
+- Cache can reduce database reads or origin traffic only where the architecture allows it; it does not magically eliminate a Worker invocation when the URL is routed through a Worker. Login normally requires a Worker/API request to validate credentials. Reduce repeated database reads safely through indexed lookups and a carefully designed session strategy, not by caching credentials.
+- Do not publicly cache login, registration, logout, recovery, session, account, role, or personalized responses. Send explicit `Cache-Control: no-store` (and equivalent edge-cache bypass policy) for sensitive auth/account endpoints.
+- Do not treat a cached email/username/display name as proof of identity. Do not trust browser-side roles or cached authorization decisions. Re-check protected actions server-side.
+
+Use clear separation between:
+1. in-memory query cache for the current page/session;
+2. persistent browser cache for approved public metadata and user-owned drafts;
+3. browser HTTP cache governed by server response headers;
+4. Cloudflare edge cache;
+5. Turso canonical records.
+
+Suggested behavior:
+- Public announcements: query cache with a short stale time (about 1–3 minutes) and bounded persistent storage only if it improves reload performance. Revalidate in the background.
+- Public document catalogue pages: cache the pages and filters the user has visited for a longer period (for example, up to 6–24 hours locally), but revalidate on navigation or after the cache becomes stale. Keep the cached set bounded; do not store the whole catalogue automatically.
+- User-created unsent drafts: IndexedDB is appropriate for larger structured drafts and offline editing. Keep drafts associated with the current local account context without treating the local account ID as authorization. On sign-out, offer to retain or clear drafts in a safe and transparent way; never expose one user’s drafts to another local account profile on a shared device.
+- Public static assets/files: use HTTP cache headers and the browser cache. Do not download every PDF or image in advance.
+- User-specific or sensitive responses: do not persist them by default. If a product requirement later demands local persistence, document data classification, encryption limitations in a browser, retention, and sign-out behavior before implementing.
+- Keep storage quotas in mind; handle `QuotaExceededError`, storage denial, private browsing limitations, corrupted entries, version changes, and stale schemas gracefully.
+- Browser storage is disposable. The UI must recover by refetching from the backend if data is missing, cleared, or invalid.
+- Do not use localStorage for large binary files, passwords, tokens, or large document catalogues.
+- Use IndexedDB only for approved drafts/metadata that need persistence, not as a replacement for server authorization or the canonical database.
+- Add versioned keys and a cleanup strategy for old cache schemas. Bound entry counts/size and expiry. Avoid deleting unrelated keys owned by other application features.
+- Prevent XSS before relying on persistent browser data; sanitize untrusted rich text and avoid unsafe HTML insertion.
+
+============================================================
+4. IMAGE UPLOAD AND IN-SITE IMAGE READER
+============================================================
+
+The website must include a real, accessible image-viewing experience. Do not assume that displaying an `<img>` tag alone is sufficient. The owner specifically requested an in-site image reader because images may fail to load or become unreadable when the image provider/account reaches a limit, throttles requests, or returns an error.
+
+A. Image reader UI
+- Implement an image viewer/lightbox integrated with the existing design system and navigation. Preserve the current dark/luxury study visual style and Arabic RTL behavior.
+- Support opening an image from a document, announcement, profile/content area only where the existing product allows it. Do not invent unrelated galleries.
+- Provide: fit-to-screen/fit-to-width, zoom in/out, reset zoom, rotate where technically safe, full-screen where supported, close/back, next/previous only when a real ordered image collection exists, and a visible loading state.
+- Support mouse, touch, keyboard, screen readers, and mobile screens. Include accessible labels, focus handling, Escape to close, and sensible focus restoration.
+- Prevent page scrolling behind the modal where appropriate. Handle very tall/wide images and landscape/portrait orientation without clipping important content.
+- If an image is an educational page/scan, allow zooming enough to read text clearly; do not automatically downscale the displayed source to a tiny preview. Use a thumbnail for catalogue previews and load the original/appropriate resolution only when opened.
+- If a multi-page document is actually stored as a sequence of images, support sequential navigation based on explicit metadata. Do not infer order from filenames alone unless validated.
+- Do not claim OCR or text extraction exists unless separately implemented and tested.
+
+B. Image loading and fallback
+- Use a single reusable image component/service with explicit loading/error states, timeouts where practical, and bounded retries with exponential backoff and jitter for transient failures only.
+- Distinguish permanent errors (404, unsupported format, invalid URL, expired link) from transient errors (429, timeout, 5xx, network interruption). Respect `Retry-After` when provided. Never retry indefinitely.
+- If the primary provider fails, try a secondary URL only if that URL is a previously verified, authorized public copy of the same file. Never substitute an unrelated image or a private Telegram link.
+- Keep the primary URL, fallback URL/backup state, checksum or stable file identifier where feasible, MIME type, byte size, width/height, provider, verification time, and expiry/health status in metadata as appropriate. Do not expose provider secrets or private backup identifiers to the browser.
+- Use bounded provider health checks and a clear admin-visible status for broken/expired images. Do not run a provider request for every ordinary user view just to test availability.
+- If no valid image URL works, show a useful fallback panel with Retry and a clear explanation, not a blank area or endless spinner.
+- Validate uploaded files server-side: allowed MIME type plus file signature where possible, maximum size, dimensions/pixel count to reduce decompression-bomb risk, filename normalization, and safe response headers. Do not trust client-supplied MIME type or extension.
+- Reject SVG uploads by default unless a deliberate sanitization policy and safe rendering strategy is implemented. Never render untrusted SVG as inline HTML.
+- Preserve transparency and animation where supported. Do not blindly convert every image to JPEG. If image optimization is needed, create a derivative and preserve the original when legally/technically appropriate; never degrade educational text scans below readability.
+- Do not send private identity documents, student verification proof, or sensitive student data to a public image host. If the existing feature handles such proof, keep it private with authenticated access and no shared CDN cache.
+
+C. Provider limit and outage behavior
+- Check the current official img402 documentation and terms before implementation. Do not invent upload endpoints or guarantee that links are permanent if the provider documents expiry or restrictions.
+- Handle 429/rate limiting, timeout, 5xx, unsupported formats, rejected uploads, and quota exhaustion. Do not loop uploads indefinitely.
+- If the provider is unavailable, keep the record in a non-public pending/error state and give the authorized uploader a retry path. Do not publish a broken URL.
+- Optional Telegram backup may be used only for eligible data and must remain private. Telegram is not the public image-serving fallback unless an explicitly supported, secure public delivery design is separately approved; do not expose bot tokens or private channel references.
+- Avoid uploading the same file repeatedly on each retry. Use an idempotency key or stable checksum when supported, and record upload state.
+- For publicly cacheable images, prefer direct versioned public URLs delivered through ordinary CDN caching if the origin configuration permits it. Do not invoke the Worker for each image cache hit.
+
+============================================================
+5. GOOGLE PDF VIEWER AND DOCUMENT PUBLICATION
+============================================================
+
+The owner explicitly chose to use Google's existing document/PDF viewer directly. Do not build a custom PDF renderer, do not introduce PDF.js, and do not replace the intended Google viewer with a different embedded viewer. First inspect the current UI and preserve its styling around the Google viewer.
+
+CURRENT-STATUS CHECK IS REQUIRED:
+- Before implementation, research the current state (as of 2026-10-27) of Google's document/PDF viewer URLs and available official Google documentation. Determine which Google-hosted viewer URL currently works for ordinary public HTTPS PDF URLs. `https://docs.google.com/gview?embedded=true&url=...` is a known pattern, but do not assume it is a formally supported, stable public embed API or the best currently supported URL. Verify the current route against official documentation, where available, and live tests. If there is no official contractual API documentation, state that honestly in the final report.
+- Do not send private or authentication-protected PDFs to Google's viewer. The Google viewer generally needs to fetch the PDF from a publicly reachable URL. Use it only for PDFs already intended to be public. Never put signed private URLs, personal documents, student verification files, authorization tokens, or secrets into the viewer URL.
+- Build the viewer URL using the verified current URL pattern and `encodeURIComponent()` for the full original HTTPS PDF URL. Validate the target as an approved `https:` URL from a configured/verified file provider. Do not accept arbitrary user-supplied viewer URLs or allow `javascript:`, local-network URLs, or untrusted URL schemes.
+- Example shape only; Gemini must validate the current endpoint before shipping it:
+
+```ts
+function buildGooglePdfViewerUrl(pdfUrl: string): string {
+  const parsed = new URL(pdfUrl);
+  if (parsed.protocol !== "https:") {
+    throw new Error("PDF URL must use HTTPS");
+  }
+  return `https://docs.google.com/gview?embedded=true&url=${encodeURIComponent(parsed.toString())}`;
+}
+```
+
+If current research establishes a different Google-hosted viewer URL as the better working choice, use the verified URL and update this helper accordingly. Do not invent a Google API key or imply that one is required unless official documentation says so.
+
+GOOGLE VIEWER UX AND FALLBACK:
+- Embed the Google viewer in the existing document view with a responsive container and useful loading/error states. Make sure iframe attributes and CSP `frame-src` allow only the necessary trusted Google viewer origin. Use an accessible iframe title.
+- Since a third-party viewer can fail, be blocked, load only part of a multi-page document, or change without notice, provide an explicit “Open original PDF” fallback that opens the original validated public HTTPS URL in a new browser tab or directly navigates to it. The browser can then use its native PDF handling. This fallback is not permission to install a custom PDF library.
+- Provide a bounded loading timeout and clear recovery UI; do not show an endless spinner, fabricate a successful render, or automatically retry forever. Iframe cross-origin restrictions mean the frontend generally cannot inspect Google's internal rendering errors directly; do not claim to detect all viewer errors unless there is a reliable, tested signal.
+- Test with multi-page PDFs, large PDFs within supported provider limits, different browsers, and Android/mobile browsers. Verify not only that the iframe loads but that pages beyond page one render. Research surfaced a Google issue tracker report in March 2026 involving multi-page rendering in embedded mode; verify current status and test before release rather than assuming it remains broken or fixed.
+- Treat the Google viewer as an external service dependency. If its endpoint is unavailable or its terms/technical behavior make the required use unsuitable, stop and report the blocker and the tested fallback; do not quietly replace it with an unapproved viewer.
+
+DOCUMENT PUBLICATION AND ORIGINAL FILES:
+- Preserve an accessible direct link to the original public PDF next to the Google viewer. Do not require the browser to fetch PDF bytes through the Worker just to display them.
+- Verify the original PDF URL is publicly reachable by Google and the end user. Consider redirects, URL expiry, byte-range behavior, response headers, provider restrictions, and CORS where relevant; do not assume an arbitrary file host will work with Google’s viewer.
+- Set `Content-Type: application/pdf` and `Content-Disposition: inline` only where the actual delivery origin supports and correctly serves those headers. A remote provider may control them; do not pretend the frontend can override response headers from a different origin.
+- Validate PDF metadata and size at upload; use safe file names. Do not parse untrusted PDFs with unsafe server-side tooling. Do not display placeholders as official ministry documents or claim a file is an official correction unless that provenance is verified.
+- A document requiring both an original PDF and a correction PDF must not become publicly visible until every required file has a confirmed usable URL. If one required upload fails, keep the document pending and show a retryable error. If only one file is required by the actual form, do not invent a second requirement.
+- Use provider adapters for PDF upload and URL verification. Keep retries bounded and idempotent. Try Catbox first and Buzzheavier only as a fallback if current official documentation confirms a supported and permitted workflow. Do not invent Buzzheavier API endpoints or assume stable API support. Verify commercial-use terms for Catbox before production; if permission is unclear or disallowed, stop production publication using it and clearly identify the blocker rather than ignoring the restriction.
+- Telegram backup is optional and asynchronous after successful primary publication; it must not block publication and must not be exposed as a public file URL. Follow the actual Telegram hosted Bot API size limits; do not promise larger uploads unless a suitable supported API server and deployment are explicitly configured.
+- Keep original/correction provider state, URL verification state, file size, MIME type, checksum where practical, upload attempt count, last error category, and last verified timestamp. Do not expose secrets or sensitive provider diagnostics in user-facing errors.
+- If a published URL later fails health checks, show an admin warning and provide a repair workflow. Avoid frequent health checks for every user view.
+
+============================================================
+6. DOCUMENT AND ANNOUNCEMENT WRITE FLOWS / CACHE INVALIDATION
+============================================================
+
+- Database writes must commit successfully before the UI reports success.
+- For a document publication: validate inputs and permissions; upload required files; verify all required URLs; commit metadata and publication state in a transaction where supported; then invalidate/version public catalogue caches or regenerate the public snapshot. If the cache update fails after the database commit, record a retryable reconciliation job/status and do not lose the committed document.
+- Do not leave orphaned uploads indefinitely. Track pending uploads and clean them up only when safe and supported; do not delete a file still referenced by another published record.
+- For an announcement publish/edit/unpublish: commit the change first, then invalidate or version affected public representations. Never expose drafts by updating a public snapshot before the database commit.
+- If a public cache is stale during a provider/database outage, serve only a previously verified public version within the documented stale window. Do not use stale cached metadata to grant access.
+- Add idempotency to upload/publish actions to prevent duplicate documents/announcements on retries.
+- UI must show distinct states: uploading, verifying, publishing, published, pending retry, and failed. Do not use a generic success toast for a partial failure.
+- Ensure deletion/unpublishing invalidates all relevant listing/detail cache keys or makes old versioned URLs harmless. Public immutable file URLs may remain reachable if already distributed; do not store sensitive material there.
+
+============================================================
+7. OBSERVABILITY, COST, PRIVACY, AND SECURITY
+============================================================
+
+- Add redacted structured logs for cache misses, provider errors, failed invalidations, upload lifecycle transitions, and reconciliation failures. Do not log passwords, session tokens, secret values, student proof images, full private URLs containing tokens, or unnecessary personal data.
+- Admin monitoring should distinguish database errors, provider upload failures, broken URLs, pending backups, cache invalidation failures, and stale-cache responses. Use actual measured values only; remove fake metrics.
+- If counting PDF traffic, label it accurately (for example, “PDF HTTP requests”) rather than “completed downloads” unless successful file transfer completion can actually be measured. Do not add a Worker to every download merely for counting if ordinary CDN analytics can answer the intended question.
+- Verify current Cloudflare plan and analytics capabilities before claiming that a particular analytics query, cache rule, or traffic volume is available. Do not promise unlimited/free traffic without evidence.
+- Apply least privilege to deployment secrets and provider credentials. Keep all provider tokens and database credentials server-side. Do not place them in frontend environment variables that are bundled into public JavaScript.
+- Apply privacy-by-design because the audience includes minors. Collect only necessary information, provide appropriate privacy/terms disclosures, avoid public hosting for sensitive documents, and define retention/deletion behavior.
+- Do not store account/session responses in public cache. Never trust a cached role or permission check.
+- Verify CSP and security headers without breaking the existing app or required provider URLs.
+
+============================================================
+8. REQUIRED TESTS AND ACCEPTANCE GATES
+============================================================
+
+Do not claim completion until the relevant tests actually pass. Add automated tests where feasible and a manual verification checklist for external providers and Cloudflare configuration.
+
+A. Cache correctness
+1. Public announcement GET returns only published public fields and has the documented cache policy.
+2. Editing/unpublishing an announcement invalidates or versions the old representation; the old content is not served past the allowed freshness/stale window.
+3. Public document filters, pagination cursors, and sort order produce distinct correct cache keys.
+4. A document publication updates catalogue results without requiring a full client reload after the documented refresh/invalidation path.
+5. Account/session/admin responses have private/no-store behavior and never appear in a shared public cache.
+6. Stale fallback never reveals drafts, private records, or stale authorization decisions.
+7. Corrupted/old-version cache entries are rejected and recovered by a backend refetch.
+
+B. Browser storage
+1. Public metadata cache survives reload where supported, then revalidates according to policy.
+2. Clearing or denying browser storage does not break the app.
+3. Quota errors and malformed stored data are handled gracefully.
+4. Drafts do not leak between different local account contexts on a shared device.
+5. No passwords, tokens, hashes, or recovery secrets appear in localStorage or IndexedDB.
+
+C. Image viewer
+1. Open a valid portrait image, landscape image, transparent image, and supported animated image.
+2. Verify zoom, reset, fit-to-width, close, keyboard behavior, mobile touch controls, and accessibility labels.
+3. Simulate a slow response, network disconnect, 404, 429, 5xx, expired URL, unsupported format, and provider outage.
+4. Confirm retries are bounded, the user can retry manually, and a broken image does not become a blank viewer.
+5. Confirm sensitive proof images cannot be served through a public CDN/cache.
+6. Confirm an alternate URL is used only if it is verified as the same authorized file.
+
+D. PDF viewer and uploads
+1. Open valid PDFs on desktop and Android/mobile; verify page navigation, zoom, loading, and error handling.
+2. Test large files at the configured limit, invalid MIME/signature, corrupted PDF, empty file, duplicate submission, provider timeout, 429, 5xx, and rejected upload.
+3. If both original and correction are required, simulate one failing and confirm the document remains unpublished.
+4. Verify provider URL behavior and terms against official documentation; record what could and could not be verified.
+5. Verify no fake official-document claims or placeholder files are presented as real exam papers.
+
+E. Cloudflare delivery verification
+1. Identify which paths are static assets, public file URLs, public snapshots, API routes, and private routes.
+2. Verify a cache HIT for each intended ordinary-CDN path and determine whether a Worker invocation occurs. Provide observed evidence from the actual deployed configuration or explicitly mark it as not yet deployed/unverified.
+3. Verify cache MISS, origin outage, invalidation/version update, and private-route behavior.
+4. Confirm no Worker route accidentally captures every static asset or file path.
+5. Confirm cache behavior with actual response headers and current Cloudflare configuration, not assumptions.
+
+F. Regression and security
+- Run the available build, type-check, lint, and tests. If a command cannot run, state exactly why and do not claim it passed.
+- Verify login/signup and the 15,000 successful new-registration/day cap remain consistent with Part 1. Login does not inherit that signup ceiling; login gets separate anti-abuse limits.
+- Verify owner bootstrap, role checks, file permissions, admin actions, and account endpoints server-side.
+- Test Arabic RTL, French, English, mobile navigation, existing dashboard, announcements, document lists, and all currently working features.
+- Ensure no secret values appear in source, generated frontend assets, logs, screenshots, or the final report.
+
+============================================================
+8A. CURRENT TECHNICAL REFERENCES TO VERIFY BEFORE IMPLEMENTATION
+============================================================
+
+These are starting points, not substitutes for checking the current pages and the actual deployment:
+- Cloudflare ordinary CDN cache basics: https://developers.cloudflare.com/cache/get-started/
+- Cloudflare static assets behavior: https://developers.cloudflare.com/workers/static-assets/
+- Cloudflare Worker routing/cache lifecycle distinctions: https://developers.cloudflare.com/cache/interaction-cloudflare-products/workers/ and https://developers.cloudflare.com/workers/cache/
+- Google sharing/public-access behavior (verify the chosen PDF URLs are public): https://support.google.com/drive/answer/2494822
+- Google-hosted PDF viewer: research the live viewer route and current official status. Google's viewer patterns may not be a fully documented general-purpose embed API. A public issue tracker report described a multi-page embedded-viewer failure in March 2026: https://issuetracker.google.com/issues/489791438. Recheck the issue status and test current behavior; do not assume it is still broken or fixed.
+- Turso/Cloudflare integration basics: https://developers.cloudflare.com/workers/databases/third-party-integrations/turso/
+- Turso query-read optimization reference: https://turso.tech/blog/tips-for-maximizing-your-turso-billing-allowances-48a0fca163e9
+
+Gemini must research current official docs and changelogs as of the implementation date, including current Turso indexing/query-plan support, Cloudflare plan routing and billing behavior, and the current supported Google viewer behavior. If any third-party source is needed because no official documentation exists, label it as community/issue-tracker evidence and test the behavior directly. Include relevant source URLs and verification dates in the final report.
+
+============================================================
+9. REQUIRED END-OF-WORK REPORT
+============================================================
+
+At the end, provide a concise but complete report:
+1. Exact files created/changed and why.
+2. Cache-policy table with actual TTLs and invalidation behavior.
+3. Which data is stored in memory, browser HTTP cache, IndexedDB, Cloudflare edge cache, and Turso.
+4. Which file paths demonstrably avoid Worker invocation on a CDN hit, which paths still invoke a Worker, and what evidence was collected.
+5. Image/PDF reader features implemented and tests performed.
+6. Provider terms/API/expiry/size limits verified, unverified, or blocked. Never imply a provider is approved if it was not checked.
+7. Build/type-check/test commands run and their actual results.
+8. Deployment settings/secrets still requiring owner configuration, with names only and no secret values.
+9. Known limitations, remaining risks, and recommended next steps.
+
+Do not change the project outside the approved scope. Do not remove existing features just because they are not currently connected; preserve them and either wire them up safely when in scope or document why they remain dormant. Do not replace the existing stack or database without a verified technical reason and explicit owner approval.
+
+END OF CACHE, VIEWER, PROVIDER, AND ACCEPTANCE REQUIREMENTS
+
+
+FINAL EXECUTION RULE
+Treat this entire TXT file as one unified implementation contract. Resolve duplicate wording in favor of the explicit approved decisions at the beginning. Do not stop after writing a plan: inspect, implement, test, and report honestly. If provider or Google viewer behavior cannot be verified in the runtime environment, implement a safe tested fallback only as permitted above and state the exact limitation; never claim unverified behavior as confirmed.
