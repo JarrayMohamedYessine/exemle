@@ -1,0 +1,98 @@
+# Base44 sandbox dev environment for SuperStudent.TN.
+#
+# Everything runs from the cloned source with hot reload:
+#   db      -> local libSQL (Turso-compatible, SQLite-compatible) server. The app's own database.
+#   install -> one-shot `npm install` against the shared node_modules volume.
+#   api     -> the Cloudflare Worker API (artifacts/superstudent/src/worker) run locally by `wrangler dev`.
+#   web     -> the Vite React client on host port 3000; it proxies /api to the worker.
+#
+# The worker talks to libSQL through @libsql/client/web (Hrana over HTTP), so it needs
+# no Cloudflare account, Turso account or credentials to run.
+
+services:
+  db:
+    image: ghcr.io/tursodatabase/libsql-server:latest
+    restart: on-failure
+    environment:
+      - SQLD_NODE=primary
+      - SQLD_HTTP_LISTEN_ADDR=0.0.0.0:8080
+      - SQLD_GRPC_LISTEN_ADDR=0.0.0.0:5001
+    volumes:
+      - sqld-data:/var/lib/sqld
+    healthcheck:
+      test: ["CMD-SHELL", "bash -ec 'exec 3<>/dev/tcp/127.0.0.1/8080'"]
+      interval: 10s
+      timeout: 3s
+      retries: 10
+      start_period: 10s
+
+  install:
+    image: node:22
+    working_dir: /app
+    restart: "no"
+    volumes:
+      - ./:/app
+      - node_modules:/app/node_modules
+      - npm-cache:/root/.npm
+    command: ["sh", "-ec", "npm install --no-audit --no-fund --legacy-peer-deps"]
+
+  api:
+    image: node:22
+    working_dir: /app
+    restart: on-failure
+    env_file:
+      - ./.env.base44-defaults
+      - /run/base44/app.env
+    volumes:
+      - ./:/app
+      - node_modules:/app/node_modules
+      - npm-cache:/root/.npm
+      - wrangler-cache:/root/.wrangler
+    depends_on:
+      db:
+        condition: service_healthy
+      install:
+        condition: service_completed_successfully
+    command:
+      - sh
+      - -ec
+      - |
+        node -e 'const fs=require("fs");const p=process.env;fs.writeFileSync("/tmp/wrangler.dev.json",JSON.stringify({name:"superstudent-api",main:"/app/artifacts/superstudent/src/worker/index.ts",compatibility_date:"2026-10-27",compatibility_flags:["nodejs_compat"],observability:{enabled:true},vars:{TURSO_DATABASE_URL:p.TURSO_DATABASE_URL||"",TURSO_AUTH_TOKEN:p.TURSO_AUTH_TOKEN||"",SETUP_SECRET:p.SETUP_SECRET||"",TELEGRAM_BOT_TOKEN:p.TELEGRAM_BOT_TOKEN||"",TELEGRAM_CHAT_ID:p.TELEGRAM_CHAT_ID||"",CF_ACCOUNT_ID:p.CF_ACCOUNT_ID||"",AE_SQL_API_TOKEN:p.AE_SQL_API_TOKEN||"",OWNER_EMAIL:p.OWNER_EMAIL||"learningmyj20@gmail.com"}},null,2))'
+        exec npx wrangler dev --config /tmp/wrangler.dev.json --ip 0.0.0.0 --port 8787
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://127.0.0.1:8787/api/settings/public >/dev/null"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 45s
+
+  web:
+    image: node:22
+    working_dir: /app
+    restart: on-failure
+    environment:
+      - API_PROXY_TARGET=http://api:8787
+      - __VITE_ADDITIONAL_SERVER_ALLOWED_HOSTS
+    volumes:
+      - ./:/app
+      - node_modules:/app/node_modules
+    depends_on:
+      install:
+        condition: service_completed_successfully
+      api:
+        condition: service_healthy
+    ports:
+      - "3000:3000"
+    command: ["sh", "-ec", "exec npm run dev"]
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://127.0.0.1:3000/ >/dev/null"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 30s
+
+volumes:
+  sqld-data:
+  node_modules:
+  npm-cache:
+  wrangler-cache:

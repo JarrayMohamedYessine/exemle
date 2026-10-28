@@ -1,0 +1,12 @@
+{
+  "previewPort": 3000,
+  "healthPath": "/",
+  "startCommand": "docker compose -f docker-compose.base44.yml up -d",
+  "secrets": [
+    {
+      "name": "SETUP_SECRET",
+      "description": "Secret required by POST /api/setup/owner to bootstrap the first superadmin. A local dev value is committed in .env.base44-defaults; set a real one in the dashboard to override it.",
+      "requiredAtBoot": false
+    }
+  ]
+}
